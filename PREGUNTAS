@@ -1,0 +1,495 @@
+-- 1.	¿Cuáles son todas las habitaciones de un tipo específico? --
+SELECT * FROM HABITACION WHERE id_tipo_habitacion = 2;
+
+-- 2. ¿Qué habitaciones tienen tarifa base menor o igual a 150?
+SELECT * FROM HABITACION WHERE tarifa_base <= 150 ORDER BY tarifa_base;
+
+-- 3. ¿Cuáles son las reservas para el 15 de abril de 2024 con 2 o más adultos?
+SELECT * FROM RESERVA WHERE fecha_llegada = '2024-04-15' AND numero_huespedes_adultos >= 2;
+
+-- 4. ¿Qué habitaciones están disponibles o en mantenimiento?
+SELECT * FROM HABITACION WHERE estado IN ('Disponible', 'Mantenimiento');
+
+-- 5. ¿Cuáles son las reservas con llegadas entre el 1 y el 30 de abril de 2024?
+SELECT * FROM RESERVA WHERE fecha_llegada BETWEEN '2024-04-01' AND '2024-04-30';
+
+-- 6. ¿Qué clientes son de nacionalidad Española, Mexicana o Argentina?
+SELECT * FROM CLIENTE WHERE nacionalidad IN ('Española', 'Mexicana', 'Argentina');
+
+-- 7. ¿Cuáles son los servicios adicionales que incluyen las palabras "spa" o "masaje" en su descripción?
+SELECT * FROM SERVICIO_ADICIONAL WHERE descripcion LIKE '%spa%' OR descripcion LIKE '%masaje%';
+
+-- 8. ¿Qué reservas no tienen depósito confirmado?
+SELECT * FROM RESERVA WHERE deposito_recibido = 0;
+
+-- 9. ¿Cuáles son las habitaciones ordenadas por tarifa base de mayor a menor?
+SELECT * FROM HABITACION ORDER BY tarifa_base DESC;
+
+-- 10. ¿Cuál es la tasa de ocupación por tipo de habitación y temporada?
+SELECT 
+    th.descripcion AS tipo_habitacion,
+    t.nombre_temporada,
+    COUNT(DISTINCT ci.id_habitacion) AS habitaciones_ocupadas,
+    COUNT(DISTINCT h.id_habitacion) AS total_habitaciones,
+    ROUND((COUNT(DISTINCT ci.id_habitacion) * 100.0 / COUNT(DISTINCT h.id_habitacion)), 2) AS tasa_ocupacion
+FROM TIPO_HABITACION th
+LEFT JOIN HABITACION h ON th.id_tipo_habitacion = h.id_tipo_habitacion
+LEFT JOIN CHECK_IN ci ON h.id_habitacion = ci.id_habitacion
+LEFT JOIN RESERVA r ON ci.id_reserva = r.id_reserva
+LEFT JOIN TEMPORADA t ON r.fecha_llegada BETWEEN t.fecha_inicio AND t.fecha_fin
+GROUP BY th.id_tipo_habitacion, t.id_temporada;
+
+
+/* ===================== PARTE 20 ===================== */
+/* ===================== PROCEDIMIENTOS ===================== */
+DELIMITER $$
+
+CREATE PROCEDURE CrearReserva(
+    IN p_id_cliente INT,
+    IN p_fecha_llegada DATE,
+    IN p_fecha_salida DATE,
+    IN p_tipo_habitacion VARCHAR(50)
+)
+BEGIN
+    DECLARE habitaciones_disponibles INT;
+    
+    SELECT COUNT(*) INTO habitaciones_disponibles
+    FROM HABITACION h
+    JOIN TIPO_HABITACION th ON h.id_tipo_habitacion = th.id_tipo_habitacion
+    WHERE th.descripcion = p_tipo_habitacion
+      AND h.estado = 'Disponible';
+    
+    IF habitaciones_disponibles > 0 THEN
+        INSERT INTO RESERVA (
+            numero_reserva, id_cliente, fecha_llegada, fecha_salida,
+            numero_noches, numero_habitaciones, tipo_habitacion_solicitada, 
+            numero_huespedes_adultos, tarifa_aplicada, metodo_pago_deposito
+        )
+        VALUES (
+            CONCAT('RES', UUID()), p_id_cliente, p_fecha_llegada, p_fecha_salida,
+            DATEDIFF(p_fecha_salida, p_fecha_llegada), 1, p_tipo_habitacion,
+            2, 0, 'No definido'
+        );
+        
+        SELECT '✅ Reserva creada exitosamente' AS mensaje;
+    ELSE
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = '❌ No hay habitaciones disponibles';
+    END IF;
+END $$
+DELIMITER ;
+
+DELIMITER $$
+
+CREATE PROCEDURE ProcesarCheckIn(
+    IN p_id_reserva INT,
+    IN p_id_habitacion INT,
+    IN p_deposito_garantia DECIMAL(10,2)
+)
+BEGIN
+    INSERT INTO CHECK_IN (id_reserva, id_habitacion, deposito_garantia)
+    VALUES (p_id_reserva, p_id_habitacion, p_deposito_garantia);
+    
+    SELECT 'Check-in procesado exitosamente' AS mensaje;
+END $$
+DELIMITER ;
+
+DELIMITER $$
+
+CREATE PROCEDURE RegistrarConsumoServicio(
+    IN p_id_reserva INT,
+    IN p_id_servicio INT,
+    IN p_cantidad INT
+)
+BEGIN
+    DECLARE v_precio DECIMAL(8,2);
+    
+    SELECT precio INTO v_precio 
+    FROM SERVICIO_ADICIONAL 
+    WHERE id_servicio = p_id_servicio;
+    
+    INSERT INTO CONSUMO_SERVICIO (id_reserva, id_servicio, cantidad, precio_aplicado)
+    VALUES (p_id_reserva, p_id_servicio, p_cantidad, v_precio);
+    
+    SELECT 'Consumo registrado exitosamente' AS mensaje;
+END $$
+DELIMITER ;
+
+DELIMITER $$
+
+CREATE PROCEDURE ProcesarCheckOut(
+    IN p_id_reserva INT
+)
+BEGIN
+    DECLARE v_total_servicios DECIMAL(10,2);
+    DECLARE v_tarifa_reserva DECIMAL(10,2);
+    
+    SELECT COALESCE(SUM(precio_aplicado * cantidad), 0)
+    INTO v_total_servicios
+    FROM CONSUMO_SERVICIO
+    WHERE id_reserva = p_id_reserva;
+    
+    SELECT tarifa_aplicada
+    INTO v_tarifa_reserva
+    FROM RESERVA
+    WHERE id_reserva = p_id_reserva;
+    
+   ALTER TABLE check_out
+   ADD COLUMN total_pagar DECIMAL(10,2);
+
+    
+    INSERT INTO CHECK_OUT (id_reserva, total_pagar)
+    VALUES (p_id_reserva, v_tarifa_reserva + v_total_servicios);
+    
+    SELECT CONCAT('Check-out procesado. Total: $', v_tarifa_reserva + v_total_servicios) AS mensaje;
+END $$
+DELIMITER ;
+
+DELIMITER $$
+CREATE PROCEDURE ProgramarEvento(
+    IN p_id_cliente INT,
+    IN p_id_salon INT,
+    IN p_tipo_evento VARCHAR(50),
+    IN p_fecha_hora_inicio DATETIME,
+    IN p_duracion INT
+)
+BEGIN
+    INSERT INTO EVENTO (
+        codigo_evento, tipo_evento, id_cliente_organizador, 
+        id_salon, fecha_hora_inicio, duracion, numero_asistentes, precio_total
+    )
+    VALUES (
+        CONCAT('EVT', UUID_SHORT()), p_tipo_evento, p_id_cliente,
+        p_id_salon, p_fecha_hora_inicio, p_duracion, 0, 0
+    );
+
+    SELECT 'Evento programado exitosamente' AS mensaje;
+END $$
+DELIMITER ;
+
+
+/* ===================== TRIGGERS ===================== */
+DELIMITER $$
+
+CREATE TRIGGER TR_ActualizarDisponibilidadHabitacion
+AFTER INSERT ON CHECK_IN
+FOR EACH ROW
+BEGIN
+    UPDATE HABITACION SET estado = 'Ocupada'
+    WHERE id_habitacion = NEW.id_habitacion;
+END $$
+DELIMITER ;
+
+DELIMITER $$
+CREATE TRIGGER TR_CalcularTarifaTemporada
+BEFORE INSERT ON RESERVA
+FOR EACH ROW
+BEGIN
+    DECLARE v_tarifa_base DECIMAL(10,2);
+    DECLARE v_factor DECIMAL(4,2);
+
+    SELECT h.tarifa_base INTO v_tarifa_base
+    FROM HABITACION h
+    JOIN TIPO_HABITACION th ON h.id_tipo_habitacion = th.id_tipo_habitacion
+    WHERE th.descripcion = NEW.tipo_habitacion_solicitada
+    LIMIT 1;
+
+    SELECT COALESCE(factor_multiplicador, 1) INTO v_factor
+    FROM TEMPORADA
+    WHERE NEW.fecha_llegada BETWEEN fecha_inicio AND fecha_fin
+    LIMIT 1;
+
+    SET NEW.tarifa_aplicada = v_tarifa_base * v_factor;
+END $$
+DELIMITER ;
+
+
+DELIMITER $$
+
+CREATE TRIGGER TR_AsignarHabitacionOptima
+BEFORE INSERT ON CHECK_IN
+FOR EACH ROW
+BEGIN
+    DECLARE v_id_tipo_habitacion INT;
+    DECLARE v_habitacion_optima INT;
+
+    SELECT id_tipo_habitacion INTO v_id_tipo_habitacion
+    FROM TIPO_HABITACION
+    WHERE descripcion = (SELECT tipo_habitacion_solicitada FROM RESERVA WHERE id_reserva = NEW.id_reserva)
+    LIMIT 1;
+
+    SELECT id_habitacion INTO v_habitacion_optima
+    FROM HABITACION
+    WHERE id_tipo_habitacion = v_id_tipo_habitacion
+      AND estado = 'Disponible'
+    LIMIT 1;
+
+    IF v_habitacion_optima IS NOT NULL THEN
+        SET NEW.id_habitacion = v_habitacion_optima;
+    END IF;
+END $$
+DELIMITER ;
+
+DELIMITER $$
+
+CREATE TRIGGER TR_AcumularPuntosCliente
+AFTER INSERT ON CHECK_OUT
+FOR EACH ROW
+BEGIN
+    DECLARE v_id_cliente INT;
+
+    SELECT id_cliente INTO v_id_cliente
+    FROM RESERVA
+    WHERE id_reserva = NEW.id_reserva;
+
+    IF NEW.total_pagar > 1000 THEN
+        UPDATE CLIENTE SET nivel_fidelizacion = 'Platinum' WHERE id_cliente = v_id_cliente;
+    ELSEIF NEW.total_pagar > 500 THEN
+        UPDATE CLIENTE SET nivel_fidelizacion = 'Gold' WHERE id_cliente = v_id_cliente;
+    END IF;
+END $$
+
+DELIMITER ;
+
+DELIMITER $$
+
+CREATE TRIGGER TR_VerificarOcupacionSalones
+BEFORE INSERT ON EVENTO
+FOR EACH ROW
+BEGIN
+    DECLARE evento_existente INT;
+    
+    SELECT COUNT(*) INTO evento_existente
+    FROM EVENTO
+    WHERE id_salon = NEW.id_salon
+      AND fecha_hora_inicio = NEW.fecha_hora_inicio
+      AND estado != 'Cancelado';
+    
+    IF evento_existente > 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El salón ya está ocupado en ese horario';
+    END IF;
+END $$
+DELIMITER ;
+
+/* ===================== VISTAS ===================== */
+
+CREATE VIEW V_DisponibilidadHabitaciones AS
+SELECT 
+    h.numero_habitacion,
+    th.descripcion AS tipo_habitacion,
+    h.tarifa_base,
+    h.estado,
+    hot.nombre AS hotel
+FROM HABITACION h
+JOIN TIPO_HABITACION th ON h.id_tipo_habitacion = th.id_tipo_habitacion
+JOIN HOTEL hot ON h.id_hotel = hot.id_hotel
+ORDER BY h.estado, th.descripcion;
+
+
+CREATE VIEW V_ReservasFuturas AS
+SELECT 
+    r.numero_reserva,
+    CONCAT(c.nombres, ' ', c.apellidos) AS cliente,
+    r.fecha_llegada,
+    r.fecha_salida,
+    r.tipo_habitacion_solicitada AS tipo_habitacion,
+    r.tarifa_aplicada,
+    r.estado_reserva
+FROM RESERVA r
+JOIN CLIENTE c ON r.id_cliente = c.id_cliente
+WHERE r.fecha_llegada >= CURDATE()
+ORDER BY r.fecha_llegada;
+
+
+CREATE VIEW V_OcupacionActual AS
+SELECT 
+    th.descripcion AS tipo_habitacion,
+    COUNT(*) AS total_habitaciones,
+    SUM(CASE WHEN h.estado = 'Ocupada' THEN 1 ELSE 0 END) AS ocupadas,
+    SUM(CASE WHEN h.estado = 'Disponible' THEN 1 ELSE 0 END) AS disponibles
+FROM HABITACION h
+JOIN TIPO_HABITACION th ON h.id_tipo_habitacion = th.id_tipo_habitacion
+GROUP BY th.descripcion;
+
+
+CREATE VIEW V_EventosProgramados AS
+SELECT 
+    e.tipo_evento,
+    CONCAT(c.nombres, ' ', c.apellidos) AS organizador,
+    s.nombre_salon AS salon,
+    e.fecha_hora_inicio,
+    e.duracion,
+    e.estado_evento AS estado
+FROM EVENTO e
+JOIN CLIENTE c ON e.id_cliente_organizador = c.id_cliente
+JOIN SALON s ON e.id_salon = s.id_salon
+WHERE e.fecha_hora_inicio >= CURDATE()
+ORDER BY e.fecha_hora_inicio;
+
+
+CREATE VIEW V_EstadisticasOcupacion AS
+SELECT 
+    t.nombre_temporada AS temporada,
+    r.tipo_habitacion_solicitada AS tipo_habitacion,
+    COUNT(r.id_reserva) AS total_reservas,
+    AVG(r.tarifa_aplicada) AS tarifa_promedio,
+    SUM(r.tarifa_aplicada) AS ingresos_totales
+FROM RESERVA r
+JOIN TEMPORADA t ON r.fecha_llegada BETWEEN t.fecha_inicio AND t.fecha_fin
+GROUP BY t.nombre_temporada, r.tipo_habitacion_solicitada;
+
+
+
+/* ===================== EVENTOS ===================== */
+SET GLOBAL event_scheduler = ON;
+DELIMITER $$
+
+CREATE EVENT EVT_EnviarConfirmacionReserva
+ON SCHEDULE EVERY 1 DAY
+STARTS CURRENT_TIMESTAMP
+DO
+BEGIN
+    INSERT INTO AuditoriaSistema (accion, descripcion)
+    SELECT 'CONFIRMACION', CONCAT('Enviada confirmación para reserva: ', numero_reserva)
+    FROM RESERVA 
+    WHERE fecha_llegada = CURDATE() + INTERVAL 1 DAY;
+END $$
+
+CREATE EVENT EVT_ActualizarTarifasTemporada
+ON SCHEDULE EVERY 1 DAY
+DO
+BEGIN
+    INSERT INTO AuditoriaSistema (accion, descripcion)
+    VALUES ('ACTUALIZACION_TARIFAS', 'Verificación de temporadas realizada');
+END $$
+
+CREATE EVENT EVT_VerificarLlegadasDelDia
+ON SCHEDULE EVERY 1 DAY
+STARTS '2024-10-28 08:00:00'
+DO
+BEGIN
+    INSERT INTO AuditoriaSistema (accion, descripcion)
+    SELECT 'LLEGADAS_DIA', CONCAT('Llegadas hoy: ', COUNT(*))
+    FROM RESERVA 
+    WHERE fecha_llegada = CURDATE();
+END $$
+
+CREATE EVENT EVT_LiberarReservasSinGarantIA
+ON SCHEDULE EVERY 1 HOUR
+DO
+BEGIN
+    UPDATE RESERVA 
+    SET estado_reserva = 'Cancelada'
+    WHERE estado_reserva = 'Pendiente'
+      AND fecha_creacion < NOW() - INTERVAL 2 HOUR;
+END $$
+
+CREATE EVENT EVT_GenerarReporteOcupacion
+ON SCHEDULE EVERY 1 WEEK
+STARTS '2024-10-28 23:00:00'
+DO
+BEGIN
+    INSERT INTO AuditoriaSistema (accion, descripcion)
+    SELECT 'REPORTE_OCUPACION', 
+           CONCAT('Ocupación semana: ', 
+                  ROUND((SUM(CASE WHEN estado = 'Ocupada' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)), 1), '%')
+    FROM HABITACION;
+END $$
+DELIMITER ;
+
+/* ===================== FUNCIONES ===================== */
+DELIMITER $$
+
+CREATE FUNCTION FN_CalcularPrecioEstancia(
+    p_tarifa_noche DECIMAL(10,2),
+    p_noches INT,
+    p_descuento DECIMAL(5,2)
+) 
+RETURNS DECIMAL(10,2)
+DETERMINISTIC
+BEGIN
+    RETURN (p_tarifa_noche * p_noches) * (1 - p_descuento);
+END $$
+
+CREATE FUNCTION FN_VerificarDisponibilidadPeriodo(
+    p_id_tipo_habitacion INT,
+    p_fecha_inicio DATE,
+    p_fecha_fin DATE
+) 
+RETURNS INT
+READS SQL DATA
+BEGIN
+    DECLARE disponibles INT;
+    
+    SELECT COUNT(*) INTO disponibles
+    FROM HABITACION h
+    WHERE h.id_tipo_habitacion = p_id_tipo_habitacion
+      AND h.estado = 'Disponible'
+      AND NOT EXISTS (
+        SELECT 1 FROM CHECK_IN ci
+        JOIN RESERVA r ON ci.id_reserva = r.id_reserva
+        WHERE ci.id_habitacion = h.id_habitacion
+          AND (r.fecha_llegada <= p_fecha_fin AND r.fecha_salida >= p_fecha_inicio)
+      );
+    
+    RETURN disponibles;
+END $$
+
+CREATE FUNCTION FN_ObtenerHabitacionesRecomendadas(
+    p_id_cliente INT
+) 
+RETURNS TEXT
+READS SQL DATA
+BEGIN
+    DECLARE recomendaciones TEXT;
+    DECLARE v_preferencias TEXT;
+    
+    SELECT preferencias_especiales INTO v_preferencias
+    FROM CLIENTE WHERE id_cliente = p_id_cliente;
+    
+    SELECT GROUP_CONCAT(numero_habitacion) INTO recomendaciones
+    FROM HABITACION 
+    WHERE estado = 'Disponible'
+      AND (v_preferencias IS NULL OR caracteristicas_especiales LIKE CONCAT('%', v_preferencias, '%'))
+    LIMIT 5;
+    
+    RETURN COALESCE(recomendaciones, 'No hay recomendaciones disponibles');
+END $$
+
+CREATE FUNCTION FN_CalcularDescuentoFidelizacion(
+    p_nivel_fidelizacion VARCHAR(20)
+) 
+RETURNS DECIMAL(5,2)
+DETERMINISTIC
+BEGIN
+    RETURN CASE 
+        WHEN p_nivel_fidelizacion = 'Platinum' THEN 0.15
+        WHEN p_nivel_fidelizacion = 'Gold' THEN 0.10
+        WHEN p_nivel_fidelizacion = 'Silver' THEN 0.05
+        ELSE 0.00
+    END;
+END $$
+
+CREATE FUNCTION FN_ObtenerTarifaAplicable(
+    p_id_tipo_habitacion INT,
+    p_fecha DATE
+) 
+RETURNS DECIMAL(10,2)
+READS SQL DATA
+BEGIN
+    DECLARE v_tarifa_base DECIMAL(10,2);
+    DECLARE v_factor DECIMAL(4,2);
+
+    SELECT tarifa_base INTO v_tarifa_base
+    FROM HABITACION
+    WHERE id_tipo_habitacion = p_id_tipo_habitacion
+    LIMIT 1;
+
+    SELECT COALESCE(factor_multiplicador, 1.0) INTO v_factor
+    FROM TEMPORADA 
+    WHERE p_fecha BETWEEN fecha_inicio AND fecha_fin
+    LIMIT 1;
+
+    RETURN v_tarifa_base * v_factor;
+END $$
+DELIMITER ;
