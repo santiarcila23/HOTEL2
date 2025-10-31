@@ -1,0 +1,302 @@
+CREATE DATABASE hotelpro;
+USE hotelpro;
+
+CREATE TABLE HOTEL (
+    id_hotel INT PRIMARY KEY AUTO_INCREMENT,
+    codigo_hotel VARCHAR(10) UNIQUE NOT NULL,
+    nombre VARCHAR(100) NOT NULL,
+    categoria_estrellas INT NOT NULL CHECK (categoria_estrellas BETWEEN 1 AND 5),
+    direccion VARCHAR(200) NOT NULL,
+    telefono VARCHAR(20) NOT NULL,
+    email VARCHAR(100) NOT NULL,
+    ano_inauguracion INT NOT NULL,
+    total_habitaciones INT NOT NULL,
+    servicios_disponibles TEXT,
+    horario_check_in TIME NOT NULL,
+    horario_check_out TIME NOT NULL,
+    gerente_responsable VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE EMPLEADO (
+    id_empleado INT PRIMARY KEY AUTO_INCREMENT,
+    id_hotel INT NOT NULL,
+    codigo_empleado VARCHAR(15) UNIQUE NOT NULL,
+    nombres VARCHAR(100) NOT NULL,
+    apellidos VARCHAR(100) NOT NULL,
+    documento_identidad VARCHAR(20) UNIQUE NOT NULL,
+    cargo VARCHAR(50) NOT NULL,
+    departamento VARCHAR(50) NOT NULL,
+    fecha_contratacion DATE NOT NULL,
+    telefono VARCHAR(20) NOT NULL,
+    email VARCHAR(100) NOT NULL,
+    turno VARCHAR(20) NOT NULL,
+    estado_activo BOOLEAN NOT NULL DEFAULT TRUE,
+    FOREIGN KEY (id_hotel) REFERENCES HOTEL(id_hotel)
+);
+
+CREATE TABLE CLIENTE (
+    id_cliente INT PRIMARY KEY AUTO_INCREMENT,
+    nombres VARCHAR(100) NOT NULL,
+    apellidos VARCHAR(100) NOT NULL,
+    documento_identidad VARCHAR(20) UNIQUE NOT NULL,
+    nacionalidad VARCHAR(50) NOT NULL,
+    fecha_nacimiento DATE NOT NULL,
+    direccion VARCHAR(200),
+    telefono VARCHAR(20) NOT NULL,
+    email VARCHAR(100),
+    preferencias_especiales TEXT,
+    nivel_fidelizacion VARCHAR(20) NOT NULL DEFAULT 'Standard'
+);
+
+CREATE TABLE TIPO_HABITACION (
+    id_tipo_habitacion INT PRIMARY KEY AUTO_INCREMENT,
+    codigo_tipo VARCHAR(10) UNIQUE NOT NULL,
+    descripcion VARCHAR(50) NOT NULL,
+    capacidad_maxima INT NOT NULL,
+    tamano_m2 DECIMAL(6,2) NOT NULL,
+    numero_camas INT NOT NULL,
+    tipo_camas VARCHAR(100) NOT NULL,
+    amenidades TEXT
+);
+
+CREATE TABLE HABITACION (
+    id_habitacion INT PRIMARY KEY AUTO_INCREMENT,
+    id_hotel INT NOT NULL,
+    id_tipo_habitacion INT NOT NULL,
+    numero_habitacion VARCHAR(10) NOT NULL,
+    piso INT NOT NULL,
+    orientacion VARCHAR(20),
+    estado VARCHAR(20) NOT NULL DEFAULT 'Disponible',
+    caracteristicas_especiales TEXT,
+    tarifa_base DECIMAL(10,2) NOT NULL,
+    FOREIGN KEY (id_hotel) REFERENCES HOTEL(id_hotel),
+    FOREIGN KEY (id_tipo_habitacion) REFERENCES TIPO_HABITACION(id_tipo_habitacion),
+    UNIQUE KEY unique_habitacion_hotel (id_hotel, numero_habitacion)
+);
+
+CREATE TABLE TEMPORADA (
+    id_temporada INT PRIMARY KEY AUTO_INCREMENT,
+    codigo_temporada VARCHAR(10) UNIQUE NOT NULL,
+    nombre_temporada VARCHAR(50) NOT NULL,
+    fecha_inicio DATE NOT NULL,
+    fecha_fin DATE NOT NULL,
+    factor_multiplicador DECIMAL(4,2) NOT NULL
+);
+
+CREATE TABLE TARIFA (
+    id_tarifa INT PRIMARY KEY AUTO_INCREMENT,
+    id_tipo_habitacion INT NOT NULL,
+    id_temporada INT NOT NULL,
+    tarifa_base DECIMAL(10,2) NOT NULL,
+    impuestos DECIMAL(5,2) NOT NULL,
+    descuentos_estadia TEXT,
+    condiciones_especiales TEXT,
+    FOREIGN KEY (id_tipo_habitacion) REFERENCES TIPO_HABITACION(id_tipo_habitacion),
+    FOREIGN KEY (id_temporada) REFERENCES TEMPORADA(id_temporada),
+    UNIQUE KEY unique_tarifa_tipo_temp (id_tipo_habitacion, id_temporada)
+);
+
+CREATE TABLE RESERVA (
+    id_reserva INT PRIMARY KEY AUTO_INCREMENT,
+    numero_reserva VARCHAR(30) UNIQUE NOT NULL,
+    fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id_cliente INT NOT NULL,
+    fecha_llegada DATE NOT NULL,
+    fecha_salida DATE NOT NULL,
+    numero_noches INT NOT NULL,
+    numero_habitaciones INT NOT NULL,
+    tipo_habitacion_solicitada VARCHAR(50) NOT NULL,
+    numero_huespedes_adultos INT NOT NULL,
+    numero_huespedes_ninos INT NOT NULL DEFAULT 0,
+    tarifa_aplicada DECIMAL(10,2) NOT NULL,
+    deposito_recibido DECIMAL(10,2) NOT NULL DEFAULT 0,
+    metodo_pago_deposito VARCHAR(50) NOT NULL,
+    solicitudes_especiales TEXT,
+    estado_reserva VARCHAR(20) NOT NULL DEFAULT 'Confirmada',
+    FOREIGN KEY (id_cliente) REFERENCES CLIENTE(id_cliente)
+);
+
+CREATE TABLE CHECK_IN (
+    id_check_in INT PRIMARY KEY AUTO_INCREMENT,
+    id_reserva INT NOT NULL,
+    id_habitacion INT NOT NULL,
+    fecha_hora_llegada_real DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id_empleado_atendio INT NOT NULL,
+    forma_pago VARCHAR(50) NOT NULL,
+    deposito_garantia DECIMAL(10,2),
+    observaciones TEXT,
+    FOREIGN KEY (id_reserva) REFERENCES RESERVA(id_reserva),
+    FOREIGN KEY (id_habitacion) REFERENCES HABITACION(id_habitacion),
+    FOREIGN KEY (id_empleado_atendio) REFERENCES EMPLEADO(id_empleado)
+);
+
+CREATE TABLE CHECK_OUT (
+    id_check_out INT PRIMARY KEY AUTO_INCREMENT,
+    id_reserva INT NOT NULL,
+    fecha_hora_salida_real DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id_empleado_atendio INT NOT NULL,
+    forma_pago_final VARCHAR(50) NOT NULL,
+    total_pagar DECIMAL(10,2) NOT NULL DEFAULT 0,
+    observaciones TEXT,
+    FOREIGN KEY (id_reserva) REFERENCES RESERVA(id_reserva),
+    FOREIGN KEY (id_empleado_atendio) REFERENCES EMPLEADO(id_empleado)
+);
+
+CREATE TABLE SERVICIO_ADICIONAL (
+    id_servicio INT PRIMARY KEY AUTO_INCREMENT,
+    codigo_servicio VARCHAR(10) UNIQUE NOT NULL,
+    nombre_servicio VARCHAR(100) NOT NULL,
+    descripcion TEXT,
+    horario_disponibilidad VARCHAR(100) NOT NULL,
+    precio DECIMAL(8,2) NOT NULL,
+    duracion_tipica INT,
+    capacidad_maxima INT
+);
+
+CREATE TABLE CONSUMO_SERVICIO (
+    id_consumo INT PRIMARY KEY AUTO_INCREMENT,
+    id_cliente INT NOT NULL,
+    id_habitacion INT NOT NULL,
+    id_servicio INT NOT NULL,
+    fecha_hora_consumo DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    cantidad INT NOT NULL DEFAULT 1,
+    precio_aplicado DECIMAL(8,2) NOT NULL,
+    id_empleado_atendio INT NOT NULL,
+    observaciones TEXT,
+    FOREIGN KEY (id_cliente) REFERENCES CLIENTE(id_cliente),
+    FOREIGN KEY (id_habitacion) REFERENCES HABITACION(id_habitacion),
+    FOREIGN KEY (id_servicio) REFERENCES SERVICIO_ADICIONAL(id_servicio),
+    FOREIGN KEY (id_empleado_atendio) REFERENCES EMPLEADO(id_empleado)
+);
+
+CREATE TABLE SALON (
+    id_salon INT PRIMARY KEY AUTO_INCREMENT,
+    id_hotel INT NOT NULL,
+    codigo_salon VARCHAR(10) NOT NULL,
+    nombre_salon VARCHAR(100) NOT NULL,
+    ubicacion VARCHAR(100) NOT NULL,
+    capacidad_maxima INT NOT NULL,
+    tamano_m2 DECIMAL(8,2) NOT NULL,
+    configuraciones_posibles TEXT,
+    tarifas_duracion TEXT NOT NULL,
+    FOREIGN KEY (id_hotel) REFERENCES HOTEL(id_hotel),
+    UNIQUE KEY unique_salon_hotel (id_hotel, codigo_salon)
+);
+
+CREATE TABLE EVENTO (
+    id_evento INT PRIMARY KEY AUTO_INCREMENT,
+    codigo_evento VARCHAR(15) UNIQUE NOT NULL,
+    tipo_evento VARCHAR(50) NOT NULL,
+    id_cliente_organizador INT NOT NULL,
+    id_salon INT NOT NULL,
+    fecha_hora_inicio DATETIME NOT NULL,
+    duracion INT NOT NULL,
+    numero_asistentes INT NOT NULL,
+    servicios_catering TEXT,
+    equipamiento_tecnico TEXT,
+    montaje_solicitado TEXT,
+    precio_total DECIMAL(12,2) NOT NULL,
+    estado_evento VARCHAR(20) NOT NULL DEFAULT 'Confirmado',
+    FOREIGN KEY (id_cliente_organizador) REFERENCES CLIENTE(id_cliente),
+    FOREIGN KEY (id_salon) REFERENCES SALON(id_salon)
+);
+
+CREATE TABLE AuditoriaSistema (
+    id_auditoria INT PRIMARY KEY AUTO_INCREMENT,
+    accion VARCHAR(50) NOT NULL,
+    descripcion TEXT,
+    fecha_hora DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO HOTEL (codigo_hotel, nombre, categoria_estrellas, direccion, telefono, email, ano_inauguracion, total_habitaciones, servicios_disponibles, horario_check_in, horario_check_out, gerente_responsable) VALUES
+('H001', 'Hotel Plaza Central', 5, 'Av. Principal 123, Ciudad', '+1-555-0101', 'reservas@plazacentral.com', 2010, 120, 'Piscina, Spa, Restaurante, Gimnasio', '15:00:00', '12:00:00', 'Carlos Rodríguez'),
+('H002', 'Sunset Beach Resort', 4, 'Calle Playa 456, Costa', '+1-555-0102', 'info@sunsetbeach.com', 2015, 80, 'Piscina, Playa privada, Bar', '14:00:00', '11:00:00', 'María González'),
+('H003', 'Mountain View Lodge', 3, 'Camino Montaña 789, Sierra', '+1-555-0103', 'contact@mountainview.com', 2008, 50, 'Restaurante, Parqueadero', '16:00:00', '12:00:00', 'Roberto Sánchez');
+
+INSERT INTO EMPLEADO (id_hotel, codigo_empleado, nombres, apellidos, documento_identidad, cargo, departamento, fecha_contratacion, telefono, email, turno, estado_activo) VALUES
+(1, 'EMP001', 'Ana', 'Martínez', '12345678A', 'Recepcionista', 'Recepción', '2020-03-15', '+1-555-1001', 'ana.martinez@plazacentral.com', 'Mañana', TRUE),
+(1, 'EMP002', 'Luis', 'García', '23456789B', 'Gerente', 'Administración', '2019-06-01', '+1-555-1002', 'luis.garcia@plazacentral.com', 'Mañana', TRUE),
+(1, 'EMP003', 'Elena', 'Torres', '34567890C', 'Housekeeping', 'Limpieza', '2021-01-10', '+1-555-1003', 'elena.torres@plazacentral.com', 'Tarde', TRUE),
+(2, 'EMP004', 'Pedro', 'Ramírez', '45678901D', 'Recepcionista', 'Recepción', '2020-11-20', '+1-555-1004', 'pedro.ramirez@sunsetbeach.com', 'Noche', TRUE),
+(2, 'EMP005', 'Sofia', 'López', '56789012E', 'Botones', 'Servicios', '2022-02-15', '+1-555-1005', 'sofia.lopez@sunsetbeach.com', 'Mañana', TRUE);
+
+INSERT INTO CLIENTE (nombres, apellidos, documento_identidad, nacionalidad, fecha_nacimiento, direccion, telefono, email, preferencias_especiales, nivel_fidelizacion) VALUES
+('Juan', 'Pérez', '11223344F', 'Mexicana', '1985-05-15', 'Calle Sol 123, México', '+52-555-2001', 'juan.perez@email.com', 'Habitación no fumadora, cama king', 'Gold'),
+('María', 'Gómez', '22334455G', 'Española', '1990-08-22', 'Av. Luna 456, España', '+34-555-2002', 'maria.gomez@email.com', 'Vista al mar, piso alto', 'Platinum'),
+('Carlos', 'Rodríguez', '33445566H', 'Argentina', '1988-12-10', 'Calle Estrella 789, Argentina', '+54-555-2003', 'carlos.rodriguez@email.com', 'Sin alfombras, almohadas hipoalergénicas', 'Standard'),
+('Laura', 'Hernández', '44556677I', 'Mexicana', '1992-03-30', 'Av. Río 321, México', '+52-555-2004', 'laura.hernandez@email.com', 'Cerca de ascensores, despertador', 'Gold'),
+('David', 'Fernández', '55667788J', 'Española', '1980-11-05', 'Calle Mar 654, España', '+34-555-2005', 'david.fernandez@email.com', 'Suite ejecutiva, acceso a lounge', 'Platinum');
+
+INSERT INTO TIPO_HABITACION (codigo_tipo, descripcion, capacidad_maxima, tamano_m2, numero_camas, tipo_camas, amenidades) VALUES
+('SGL', 'Individual Standard', 1, 20.00, 1, 'Cama individual', 'TV, WiFi, Aire acondicionado'),
+('DBL', 'Doble Standard', 2, 28.00, 1, 'Cama queen', 'TV, WiFi, Aire acondicionado, Mini bar'),
+('TWN', 'Doble Twin', 2, 30.00, 2, '2 camas individuales', 'TV, WiFi, Aire acondicionado, Mini bar'),
+('SUITE', 'Suite Junior', 3, 45.00, 1, 'Cama king', 'TV pantalla plana, WiFi, Aire acondicionado, Mini bar, Jacuzzi'),
+('FAM', 'Familiar', 4, 35.00, 2, '1 cama queen + 2 individuales', 'TV, WiFi, Aire acondicionado, Mini bar, Sofá cama');
+
+INSERT INTO HABITACION (id_hotel, id_tipo_habitacion, numero_habitacion, piso, orientacion, estado, caracteristicas_especiales, tarifa_base) VALUES
+(1, 1, '101', 1, 'Norte', 'Disponible', 'Vista al jardín', 80.00),
+(1, 2, '102', 1, 'Sur', 'Disponible', 'Cerca de recepción', 120.00),
+(1, 3, '201', 2, 'Este', 'Ocupada', 'Vista a la piscina', 110.00),
+(1, 4, '301', 3, 'Oeste', 'Mantenimiento', 'Terraza privada', 200.00),
+(1, 5, '202', 2, 'Norte', 'Disponible', 'Conecta con habitación 203', 150.00),
+(2, 2, '101', 1, 'Este', 'Disponible', 'Vista al mar', 140.00),
+(2, 3, '102', 1, 'Oeste', 'Ocupada', 'Balcón privado', 130.00),
+(2, 4, '201', 2, 'Sur', 'Disponible', 'Jacuzzi con vista al mar', 250.00);
+
+INSERT INTO TEMPORADA (codigo_temporada, nombre_temporada, fecha_inicio, fecha_fin, factor_multiplicador) VALUES
+('TEMP_BAJA', 'Temporada Baja', '2024-01-08', '2024-03-31', 0.80),
+('TEMP_MEDIA', 'Temporada Media', '2024-04-01', '2024-06-30', 1.00),
+('TEMP_ALTA', 'Temporada Alta', '2024-07-01', '2024-08-31', 1.50),
+('TEMP_ESPECIAL', 'Temporada Especial', '2024-12-15', '2025-01-05', 2.00);
+
+INSERT INTO TARIFA (id_tipo_habitacion, id_temporada, tarifa_base, impuestos, descuentos_estadia, condiciones_especiales) VALUES
+(1, 1, 64.00, 10.00, '10% descuento 7+ noches', 'No reembolsable'),
+(1, 2, 80.00, 10.00, '15% descuento 7+ noches', 'Reembolsable con 48h'),
+(2, 1, 96.00, 10.00, '10% descuento 7+ noches', 'No reembolsable'),
+(2, 2, 120.00, 10.00, '15% descuento 7+ noches', 'Reembolsable con 48h'),
+(3, 1, 88.00, 10.00, '10% descuento 7+ noches', 'No reembolsable'),
+(3, 2, 110.00, 10.00, '15% descuento 7+ noches', 'Reembolsable con 48h'),
+(4, 1, 160.00, 10.00, '5% descuento 7+ noches', 'No reembolsable'),
+(4, 2, 200.00, 10.00, '10% descuento 7+ noches', 'Reembolsable con 72h');
+
+INSERT INTO RESERVA (numero_reserva, fecha_creacion, id_cliente, fecha_llegada, fecha_salida, numero_noches, numero_habitaciones, tipo_habitacion_solicitada, numero_huespedes_adultos, numero_huespedes_ninos, tarifa_aplicada, deposito_recibido, metodo_pago_deposito, solicitudes_especiales, estado_reserva) VALUES
+('RES001', '2024-03-20 10:30:00', 1, '2024-04-15', '2024-04-20', 5, 1, 'Doble Standard', 2, 0, 120.00, 120.00, 'Tarjeta Crédito', 'Cama king, piso alto', 'Confirmada'),
+('RES002', '2024-03-18 14:20:00', 2, '2024-04-10', '2024-04-15', 5, 1, 'Suite Junior', 2, 1, 200.00, 100.00, 'Transferencia', 'Cuna para bebé', 'Confirmada'),
+('RES003', '2024-03-22 09:15:00', 3, '2024-04-12', '2024-04-14', 2, 2, 'Doble Twin', 4, 0, 110.00, 110.00, 'Tarjeta Débito', 'Habitaciones contiguas', 'Confirmada'),
+('RES004', '2024-03-25 16:45:00', 4, '2024-04-18', '2024-04-25', 7, 1, 'Familiar', 2, 2, 150.00, 75.00, 'Efectivo', 'Almohadas extra', 'Pendiente'),
+('RES005', '2024-03-19 11:20:00', 5, '2024-04-22', '2024-04-24', 2, 1, 'Individual Standard', 1, 0, 80.00, 0.00, 'Tarjeta Crédito', 'Habitación tranquila', 'Cancelada');
+
+INSERT INTO CHECK_IN (id_reserva, id_habitacion, fecha_hora_llegada_real, id_empleado_atendio, forma_pago, deposito_garantia, observaciones) VALUES
+(1, 2, '2024-04-15 15:30:00', 1, 'Tarjeta Crédito', 50.00, 'Cliente llegó antes del check-in'),
+(2, 4, '2024-04-10 16:45:00', 1, 'Efectivo', 100.00, 'Solicitó late check-out'),
+(3, 3, '2024-04-12 14:15:00', 4, 'Tarjeta Débito', 80.00, 'Grupo familiar');
+
+INSERT INTO CHECK_OUT (id_reserva, fecha_hora_salida_real, id_empleado_atendio, forma_pago_final, observaciones) VALUES
+(1, '2024-04-20 11:30:00', 2, 'Tarjeta Crédito', 'Cliente satisfecho, dejó propina'),
+(2, '2024-04-15 13:15:00', 2, 'Efectivo', 'Utilizó late check-out');
+
+INSERT INTO SERVICIO_ADICIONAL (codigo_servicio, nombre_servicio, descripcion, horario_disponibilidad, precio, duracion_tipica, capacidad_maxima) VALUES
+('SPA01', 'Masaje Relajante', 'Masaje de 60 minutos para relajar músculos', '09:00-20:00', 80.00, 60, 1),
+('SPA02', 'Tratamiento Facial', 'Limpieza facial profunda con productos naturales', '10:00-18:00', 60.00, 45, 1),
+('RES01', 'Desayuno Buffet', 'Buffet completo con variedad de opciones', '06:30-10:30', 25.00, 60, 50),
+('RES02', 'Cena Romántica', 'Cena privada con menú degustación', '19:00-23:00', 120.00, 120, 2),
+('ACT01', 'Tour Ciudad', 'Recorrido guiado por los principales atractivos', '09:00-13:00', 50.00, 240, 15),
+('ACT02', 'Clase de Yoga', 'Sesión de yoga matutina en la playa', '07:00-08:00', 20.00, 60, 10);
+
+INSERT INTO CONSUMO_SERVICIO (id_cliente, id_habitacion, id_servicio, fecha_hora_consumo, cantidad, precio_aplicado, id_empleado_atendio, observaciones) VALUES
+(1, 2, 3, '2024-04-16 08:30:00', 2, 25.00, 3, 'Desayuno incluido en tarifa'),
+(1, 2, 1, '2024-04-17 16:00:00', 1, 80.00, 3, 'Masaje para dos personas'),
+(2, 4, 4, '2024-04-11 20:00:00', 2, 120.00, 5, 'Aniversario de bodas'),
+(2, 4, 6, '2024-04-12 07:30:00', 1, 20.00, 5, 'Clase privada');
+
+INSERT INTO SALON (id_hotel, codigo_salon, nombre_salon, ubicacion, capacidad_maxima, tamano_m2, configuraciones_posibles, tarifas_duracion) VALUES
+(1, 'SALON01', 'Salón Principal', 'Planta Baja, Ala Este', 200, 150.00, 'Teatro, Banquete, Recepción', '4 horas: $500, 8 horas: $800'),
+(1, 'SALON02', 'Salón Ejecutivo', 'Primer Piso, Ala Oeste', 50, 60.00, 'Mesas redondas, En U, Conferencia', '4 horas: $300, 8 horas: $500'),
+(2, 'SALON03', 'Salón Playa', 'Planta Baja, Frente al mar', 150, 120.00, 'Cóctel, Banquete, Recepción', '4 horas: $600, 8 horas: $1000');
+
+INSERT INTO EVENTO (codigo_evento, tipo_evento, id_cliente_organizador, id_salon, fecha_hora_inicio, duracion, numero_asistentes, servicios_catering, equipamiento_tecnico, montaje_solicitado, precio_total, estado_evento) VALUES
+('EVT001', 'Boda', 1, 1, '2024-05-15 17:00:00', 6, 150, 'Buffet premium, Bar abierto', 'Sistema de sonido, Proyector, Micrófonos', 'Mesas redondas, Pista de baile', 5000.00, 'Confirmado'),
+('EVT002', 'Conferencia', 3, 2, '2024-05-20 09:00:00', 8, 40, 'Coffee breaks, Almuerzo ejecutivo', 'Pantalla, Proyector, WiFi', 'En U con mesas', 1200.00, 'Confirmado'),
+('EVT003', 'Cena de Gala', 5, 3, '2024-05-25 19:00:00', 4, 100, 'Cena 5 tiempos, Vinos seleccionados', 'Sistema de sonido ambiental', 'Mesas largas, Iluminación especial', 3500.00, 'Pendiente');
+
